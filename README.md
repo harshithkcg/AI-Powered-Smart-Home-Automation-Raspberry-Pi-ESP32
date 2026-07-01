@@ -305,5 +305,10 @@ This project is developed for **educational and research purposes**.
 
 Electronics and Communication Engineering  
 JSS Science and Technology University, Mysuru
-
+mail: harshithsag5@gmail.com
 GitHub: https://github.com/harshithkcg
+
+
+>> if in case the code is not working plz contact me in mail or else insta link in bio
+>> create your own esp32 code by useing this inforamtion or else conme i wil hepl
+>> it is free 
