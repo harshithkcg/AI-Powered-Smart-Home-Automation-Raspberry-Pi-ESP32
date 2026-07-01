@@ -1,0 +1,210 @@
+# DeepSeek (via OpenRouter)-Powered Voice Assistant with MQTT + Wikipedia + Gmail Multi-Recipient + WhatsApp Support + Main Logic + Moisture WhatsApp Alert + Tank Full Auto Motor Off
+
+import os
+import time
+import queue
+import threading
+import traceback
+import wikipedia
+import sounddevice
+from io import BytesIO
+from datetime import date
+import requests
+import smtplib
+from email.mime.text import MIMEText
+from gtts import gTTS
+from pygame import mixer
+import speech_recognition as sr
+import paho.mqtt.publish as publish
+import paho.mqtt.client as mqtt
+from twilio.rest import Client
+
+# --- CONFIGURATION ---
+MQTT_BROKER = "192.168.137.246"
+MQTT_TOPIC = "home/device/control"
+MQTT_TANK_TOPIC = "home/device/tank"
+OPENROUTER_API_KEY = "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"
+EMAIL_SENDER = "harshithsag5@gmail.com"
+EMAIL_PASSWORD = "jngo gufq bsgw ftea"
+EMAIL_RECEIVER = {
+    "Harshith": "harshithsagark3@example.com",
+    "Vijay": "70vijay19@example.com"
+}
+
+# Twilio Config for WhatsApp alert
+TWILIO_SID = "AC8a344690c16b2550de5afb2cf26c5658"
+TWILIO_AUTH_TOKEN = "169e0b3c6caf6da3035fb5eecf803f78"
+TWILIO_WHATSAPP_FROM = "whatsapp:+14155238886"
+TWILIO_WHATSAPP_TO = "whatsapp:+919731846620"
+
+mixer.pre_init(frequency=24000, buffer=2048)
+mixer.init()
+
+led_state = False
+motor_state = False
+alert_sent = False
+
+# SPEAK
+
+def speak(text):
+    print(f"ðŸ—£ {text}")
+    mp3file = BytesIO()
+    tts = gTTS(text, lang="en", tld='us')
+    tts.write_to_fp(mp3file)
+    mp3file.seek(0)
+    try:
+        mixer.music.load(mp3file, "mp3")
+        mixer.music.play()
+        while mixer.music.get_busy():
+            time.sleep(0.2)
+    except:
+        mixer.music.stop()
+
+# MQTT SEND
+
+def send_mqtt(cmd):
+    try:
+        publish.single(MQTT_TOPIC, cmd, hostname=MQTT_BROKER)
+        print(f"âœ… Sent to ESP32: {cmd}")
+    except Exception as e:
+        print("âŒ MQTT Error:", e)
+        speak("Could not send command")
+
+# EMAIL
+
+def send_email(subject, body):
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = EMAIL_SENDER
+        msg["To"] = ", ".join(EMAIL_RECEIVER.values())
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, list(EMAIL_RECEIVER.values()), msg.as_string())
+        speak("Email sent successfully.")
+    except Exception as e:
+        print("âŒ Email error:", e)
+        speak("Failed to send email")
+
+# WHATSAPP
+
+def send_whatsapp_alert():
+    try:
+        client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(
+            body="ðŸŒ± Alert: Tank is full. Motor turned off automatically.",
+            from_=TWILIO_WHATSAPP_FROM,
+            to=TWILIO_WHATSAPP_TO
+        )
+        print("âœ… WhatsApp alert sent.")
+    except Exception as e:
+        print("âŒ WhatsApp error:", e)
+
+# DEEPSEEK + WIKIPEDIA
+
+def search_deepseek(query):
+    try:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost",
+            "X-Title": "VoiceAssistant"
+        }
+        data = {
+            "model": "deepseek/deepseek-r1-0528:free",
+            "messages": [{"role": "user", "content": query}]
+        }
+        response = requests.post(url, headers=headers, json=data)
+        return response.json()['choices'][0]['message']['content'].strip()
+    except:
+        return "Sagar A I is unreachable."
+
+def search_wikipedia(query):
+    try:
+        return wikipedia.summary(query, sentences=2)
+    except:
+        return "No Wikipedia result."
+
+# SOURCE
+
+def ask_source():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        speak("Wikipedia or Sagar A I?")
+        r.adjust_for_ambient_noise(source)
+        try:
+            audio = r.listen(source, timeout=5)
+            return r.recognize_google(audio).lower()
+        except:
+            return "sagar a i"
+
+# COMMANDS
+
+def handle_command(command):
+    global led_state, motor_state
+
+    if "light on" in command:
+        send_mqtt("ON")
+        led_state = True
+        speak("Light on.")
+    elif "light off" in command:
+        send_mqtt("OFF")
+        led_state = False
+        speak("Light off.")
+    elif "motor on" in command:
+        send_mqtt("MOTOR ON")
+        motor_state = True
+        speak("Motor on.")
+    elif "motor off" in command:
+        send_mqtt("MOTOR OFF")
+        motor_state = False
+        speak("Motor off.")
+    elif "send email" in command:
+        speak("What should I email?")
+        r = sr.Recognizer()
+        with sr.Microphone() as source:
+            audio = r.listen(source, timeout=8)
+            msg = r.recognize_google(audio)
+            send_email("Voice Message", msg)
+    else:
+        src = ask_source()
+        ans = search_wikipedia(command) if "wikipedia" in src else search_deepseek(command)
+        speak(ans)
+
+# MQTT SUBSCRIBER (tank full alert from ESP32)
+
+def on_message(client, userdata, msg):
+    global motor_state
+    payload = msg.payload.decode()
+    print("ðŸ“© MQTT message:", payload)
+    if payload == "TANK FULL":
+        motor_state = False
+        speak("Tank is full. Turning off the motor.")
+        send_whatsapp_alert()
+
+mqtt_client = mqtt.Client()
+mqtt_client.on_message = on_message
+mqtt_client.connect(MQTT_BROKER, 1883, 60)
+mqtt_client.subscribe(MQTT_TANK_TOPIC)
+mqtt_client.loop_start()
+
+# MAIN
+
+def recognize_and_process():
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        speak("Listening")
+        recognizer.adjust_for_ambient_noise(source)
+        try:
+            audio = recognizer.listen(source, timeout=10, phrase_time_limit=8)
+            command = recognizer.recognize_google(audio).lower()
+            print("ðŸ§  You said:", command)
+            handle_command(command)
+        except:
+            speak("Sorry, I could not understand.")
+
+if _name_ == "_main_":
+    print("ðŸŽ™ Voice Assistant Ready")
+    while True:
+        recognize_and_process()
