@@ -2,6 +2,8 @@
 
 An intelligent voice-controlled home automation system built using **Python**, **Raspberry Pi**, **ESP32**, **MQTT**, **DeepSeek AI**, **Wikipedia API**, **Gmail SMTP**, and **Twilio WhatsApp**. The system enables users to control home appliances using voice commands, answer general questions using AI, send emails, monitor water tank levels, and automatically send WhatsApp alerts.
 
+# This project was builded during my 3rd year of B.E. in Electronics and Communication Engineering (ECE). After I complete the project, an M.Tech student will continue to develop and enhance it under my guidance.
+
 ---
 
 ## 🚀 Features
